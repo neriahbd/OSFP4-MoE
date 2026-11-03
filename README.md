@@ -1,60 +1,87 @@
 # OSFP4-MoE
 
-A guide to calibrating, exporting, and serving OSFP4 Mixture-of-Experts models with three companion forks.
+OSFP4 quantizes MoE models with optimized per-channel smoothing and FP4 scales. Each expert shares a smoothing vector across its gate/up projections and uses a separate vector for its down projection. LLM Compressor calibrates and exports the model; compressed-tensors stores the diagonal transforms; vLLM applies them during inference.
 
-OSFP4 optimizes per-channel smoothing and FP4 quantization scales. The MoE integration extends this to individual experts: LLM Compressor calibrates and exports the model, compressed-tensors represents the diagonal input transforms, and vLLM applies those transforms during inference.
+Supports NVFP4 (W4A4) and NVFP4A16 (W4A16), with RTN or SIC optimization. These are development branches; end-to-end MoE GPU accuracy and performance validation remain pending.
 
-**Status: development integration.** The branches implement MoE calibration, checkpoint handling, and native serving paths. End-to-end MoE GPU accuracy and performance are not established by this repository. See the [support and validation status](docs/support.md) before choosing a deployment.
+## Forks
 
-## The three forks
-
-| Component | Use this branch | Responsibility |
+| Fork | Branch | Role |
 |---|---|---|
-| [LLM Compressor](https://github.com/orimeirgit/llm-compressor-for-osfp4/tree/add-moe-support) | `add-moe-support` | OSFP4 RTN/SIC optimization, MoE calibration, smoothing, and compressed checkpoint export |
-| [compressed-tensors](https://github.com/orimeirgit/compressed-tensors-for-osfp4/tree/osfp4-diagonal-transform) | `osfp4-diagonal-transform` | Diagonal transform configuration, saved vectors, and transform-aware checkpoint representation |
-| [vLLM](https://github.com/neriahbd/vllm-for-osfp4/tree/add-moe-support) | `add-moe-support` | Load expert vectors and apply them in native CUTLASS W4A4 or Humming W4A16 execution |
+| [LLM Compressor](https://github.com/orimeirgit/llm-compressor-for-osfp4/tree/add-moe-support) | `add-moe-support` | OSFP4 calibration and export |
+| [compressed-tensors](https://github.com/orimeirgit/compressed-tensors-for-osfp4/tree/osfp4-diagonal-transform) | `osfp4-diagonal-transform` | Diagonal transform representation |
+| [vLLM](https://github.com/neriahbd/vllm-for-osfp4/tree/add-moe-support) | `add-moe-support` | Native MoE inference |
 
-Use these branches together. Installing the stock packages alone does not establish support for this checkpoint contract. This repository contains documentation and a source checkout helper; the implementations remain in their respective forks.
+## 1. Install for calibration
 
-```mermaid
-flowchart LR
-    A[BF16 MoE model + calibration data] --> B[LLM Compressor: OSFP4]
-    C[compressed-tensors: diagonal transforms] --> B
-    B --> D[Packed checkpoint + transform config + expert vectors]
-    D --> E[vLLM: native MoE execution]
-```
-
-## Start here
-
-1. Read [how OSFP4 works for MoE](docs/moe.md).
-2. Follow [setup, calibration, and serving](docs/getting-started.md).
-3. Check the [supported configurations and validation gaps](docs/support.md).
-4. Consult the [full integration design](docs/design.md) for numerical behavior, checkpoint details, component mapping, and reference results.
-
-If you already have a compatible exported checkpoint, start with the serving section of the setup guide. If you are evaluating a new model architecture, verify its expert layout and calibration mappings first; generic MoE support in the underlying libraries is not a guarantee of OSFP4 support.
-
-## Reproducible source snapshot
-
-[revisions.tsv](revisions.tsv) records the three remote commit IDs checked on 2026-11-03. These are documentation reference revisions, **not a certified compatible release or a GPU-tested environment lock**.
-
-To check out exactly those revisions:
+Use `uv` and a CUDA-enabled PyTorch environment with enough memory for the BF16 model and calibration workspace. Run from a new working directory:
 
 ```bash
-bash scripts/checkout-forks.sh
+git clone -b add-moe-support https://github.com/orimeirgit/llm-compressor-for-osfp4.git llm-compressor
+git clone -b osfp4-diagonal-transform https://github.com/orimeirgit/compressed-tensors-for-osfp4.git compressed-tensors
+git clone -b add-moe-support https://github.com/neriahbd/vllm-for-osfp4.git vllm
+
+uv venv --python 3.12 .venv
+uv pip install --python .venv/bin/python -e ./compressed-tensors -e ./llm-compressor --torch-backend=auto
+uv pip check --python .venv/bin/python
 ```
 
-The script creates `sources/` and stops if a destination already exists. Branch links above track ongoing development; commit IDs keep the documentation snapshot reproducible.
+## 2. Quantize and export
 
-## What is different for MoE?
+Save this as `quantize.py`, set `MODEL_ID` to your BF16 MoE model, and run `.venv/bin/python quantize.py`. The router exclusions below assume Qwen-style names; adapt them for your architecture. Calibration uses the fork's `perfectblend` dataset loader; use representative data for your application.
 
-Each expert can have its own input-channel smoothing vector. Its gate and up projections share a vector because they consume the same input; its down projection has a separate vector. The checkpoint keeps those vectors under the original per-expert projection names. vLLM applies the selected expert's transform after routing and before the relevant quantized operation.
+```python
+import torch
+from transformers import AutoModelForCausalLM, AutoTokenizer
 
-NVFP4 uses 4-bit weights and 4-bit activations (W4A4). NVFP4A16 uses 4-bit weights and 16-bit activations (W4A16). RTN and SIC are calibration/weight-quantization choices; they do not select the serving backend.
+from llmcompressor import oneshot
+from llmcompressor.modifiers.osfp4 import OSFP4Modifier
+from llmcompressor.utils import load_context
 
-## Provenance and contributions
+MODEL_ID = "/path/to/bf16-moe-model"
+SAVE_DIR = "moe-osfp4"
 
-The full design is adapted from `osfp4-design-note-2.md`, with the repository targets changed to the MoE branches and MoE-specific behavior documented from their source. Dense-model reference results are kept explicitly separate from MoE validation.
+tokenizer = AutoTokenizer.from_pretrained(MODEL_ID)
+with load_context():
+    model = AutoModelForCausalLM.from_pretrained(MODEL_ID, dtype=torch.bfloat16)
 
-Documentation was prepared with AI assistance. Corrections should identify the relevant fork, branch, and commit. Implementation issues belong in the responsible fork; cross-repository documentation fixes belong here. See [CONTRIBUTING.md](CONTRIBUTING.md).
+oneshot(
+    model=model,
+    dataset="perfectblend",
+    splits="train[:1024]",
+    recipe=OSFP4Modifier(
+        scheme="NVFP4",           # Or "NVFP4A16" for W4A16.
+        optimization_mode="sic",  # Or "rtn".
+        targets=["Linear"],
+        ignore=["lm_head", "re:.*mlp.gate$", "re:.*mlp.shared_expert_gate$"],
+        activation_subsample_size="auto",
+    ),
+    num_calibration_samples=1024,
+    max_seq_length=2048,
+    propagate_error=True,
+    moe_calibrate_all_experts=True,
+)
+model.save_pretrained(SAVE_DIR, save_compressed=True)
+tokenizer.save_pretrained(SAVE_DIR)
+```
 
-The linked projects retain their own licenses and attribution. This repository does not redistribute their implementations or model weights.
+`load_context()` prepares supported MoE experts for calibration. Keep router layers in full precision. `moe_calibrate_all_experts=True` exposes every expert to all calibration tokens; `False` uses routed tokens and requires checking expert coverage.
+
+## 3. Serve with vLLM
+
+From the same working directory, create a separate serving environment:
+
+```bash
+cd vllm
+uv venv --python 3.12 .venv
+VLLM_USE_PRECOMPILED=1 uv pip install --python .venv/bin/python \
+  -e . -e ../compressed-tensors --torch-backend=auto
+uv pip check --python .venv/bin/python
+
+.venv/bin/vllm serve /absolute/path/to/moe-osfp4 \
+  --tensor-parallel-size 1 --enforce-eager
+```
+
+Use a GPU supported by the selected backend: CUTLASS for NVFP4 or Humming for NVFP4A16. Follow the [vLLM installation guide](https://github.com/neriahbd/vllm-for-osfp4/tree/add-moe-support/docs/getting_started/installation) for backend dependencies or a source build if compatible precompiled artifacts are unavailable. No OSFP4 plugin is needed.
+
+Start with single-GPU execution. Expert parallelism, expert load balancing, and fused shared-expert execution are not supported by this transformed-expert path. The commands are a development workflow, not a GPU-validated release recipe.
