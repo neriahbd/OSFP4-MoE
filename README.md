@@ -28,23 +28,26 @@ uv pip check --python .venv/bin/python
 
 ## 2. Quantize and export
 
-Save this as `quantize.py` and run `.venv/bin/python quantize.py`. This example quantizes [Qwen/Qwen1.5-MoE-A2.7B](https://huggingface.co/Qwen/Qwen1.5-MoE-A2.7B) (14.3B total parameters, 2.7B active per token) using 128 passages from the [WikiText-2](https://huggingface.co/datasets/Salesforce/wikitext) training split, with up to 512 tokens per passage. This small calibration subset is for trying the workflow; use representative data and check expert coverage when evaluating quality.
+Save this as `quantize.py` and run `.venv/bin/python quantize.py`. This example quantizes [Qwen/Qwen3.6-35B-A3B](https://huggingface.co/Qwen/Qwen3.6-35B-A3B) (35B total parameters, about 3B active per token) using 128 passages from the [WikiText-2](https://huggingface.co/datasets/Salesforce/wikitext) training split, with up to 512 tokens per passage. This small calibration subset is for trying the workflow; use representative data and check expert coverage when evaluating quality.
 
 ```python
 import torch
 from datasets import load_dataset
-from transformers import AutoModelForCausalLM, AutoTokenizer
+from transformers import AutoProcessor, Qwen3_5MoeForConditionalGeneration
 
 from llmcompressor import oneshot
 from llmcompressor.modifiers.osfp4 import OSFP4Modifier
 from llmcompressor.utils import load_context
 
-MODEL_ID = "Qwen/Qwen1.5-MoE-A2.7B"
+MODEL_ID = "Qwen/Qwen3.6-35B-A3B"
 SAVE_DIR = "moe-osfp4"
 
-tokenizer = AutoTokenizer.from_pretrained(MODEL_ID)
-with load_context():
-    model = AutoModelForCausalLM.from_pretrained(MODEL_ID, dtype=torch.bfloat16)
+processor = AutoProcessor.from_pretrained(MODEL_ID)
+tokenizer = processor.tokenizer
+with load_context(Qwen3_5MoeForConditionalGeneration):
+    model = Qwen3_5MoeForConditionalGeneration.from_pretrained(
+        MODEL_ID, dtype=torch.bfloat16,
+    )
 
 ds = load_dataset("Salesforce/wikitext", "wikitext-2-raw-v1", split="train")
 ds = ds.filter(lambda row: len(row["text"].split()) >= 64)
@@ -59,12 +62,21 @@ ds = ds.map(
 
 oneshot(
     model=model,
+    processor=processor,
     dataset=ds,
     recipe=OSFP4Modifier(
         scheme="NVFP4",           # Or "NVFP4A16" for W4A16.
         optimization_mode="sic",  # Or "rtn".
         targets=["Linear"],
-        ignore=["lm_head", "re:.*mlp.gate$", "re:.*mlp.shared_expert_gate$"],
+        ignore=[
+            "re:.*lm_head",
+            "re:visual.*",
+            "re:model.visual.*",
+            "re:.*mlp.gate$",
+            "re:.*embed_tokens$",
+            "re:.*shared_expert_gate$",
+            "re:.*linear_attn.*",
+        ],
         activation_subsample_size="auto",
     ),
     num_calibration_samples=128,
@@ -73,10 +85,10 @@ oneshot(
     moe_calibrate_all_experts=False,
 )
 model.save_pretrained(SAVE_DIR, save_compressed=True)
-tokenizer.save_pretrained(SAVE_DIR)
+processor.save_pretrained(SAVE_DIR)
 ```
 
-`load_context()` prepares supported MoE experts for calibration. Keep router layers in full precision. The example uses `moe_calibrate_all_experts=False` so each expert is calibrated on its routed tokens. Check expert coverage with your calibration data. Set it to `True` to expose every expert to all calibration tokens.
+`load_context(Qwen3_5MoeForConditionalGeneration)` prepares the Qwen3.6 experts for calibration. This example uses text-only calibration for the multimodal checkpoint and leaves the vision tower, linear-attention modules, and router layers in full precision, following the fork's Qwen3.6 example. The model uses the Qwen3.5 MoE architecture, hence the loader class name. Budget memory for all 35B parameters (roughly 70 GB of BF16 weights before workspace), not just the 3B active per token; use adequate aggregate memory or supported offloading. The example uses `moe_calibrate_all_experts=False` so each expert is calibrated on its routed tokens. Check expert coverage with your calibration data. Set it to `True` to expose every expert to all calibration tokens.
 
 ## 3. Serve with vLLM
 
