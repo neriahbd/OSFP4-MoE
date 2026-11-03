@@ -1,0 +1,4 @@
+# component	repository	branch	commit
+llm-compressor	https://github.com/orimeirgit/llm-compressor-for-osfp4.git	add-moe-support	a9f746d0ae01a1fc58e17ace966dbc93c9c03a16
+compressed-tensors	https://github.com/orimeirgit/compressed-tensors-for-osfp4.git	osfp4-diagonal-transform	30d017eec16e3d365be66017cbc1a57782ff7bcb
+vllm	https://github.com/neriahbd/vllm-for-osfp4.git	add-moe-support	03aac61f82b2a5576e1a31516779f9f01965543b
