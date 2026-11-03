@@ -22,9 +22,14 @@ git clone -b osfp4-diagonal-transform https://github.com/orimeirgit/compressed-t
 git clone -b add-moe-support https://github.com/neriahbd/vllm-for-osfp4.git vllm
 
 uv venv --python 3.12 .venv
-uv pip install --python .venv/bin/python ./compressed-tensors -e ./llm-compressor --torch-backend=auto
+BUILD_TYPE=nightly uv pip install --python .venv/bin/python ./compressed-tensors -e ./llm-compressor --torch-backend=auto
 uv pip check --python .venv/bin/python
 ```
+
+`BUILD_TYPE=nightly` avoids a development version such as `0.1.devN` that
+fails LLM Compressor's `compressed-tensors>=0.20.2a2` requirement. Use it whenever
+building this fork in either environment; the nightly version depends on the
+checkout, so do not assume a fixed version string.
 
 ## 2. Quantize and export
 
@@ -100,13 +105,13 @@ only when actively editing its source.
 The vLLM branch currently pins `compressed-tensors==0.17.0`, which conflicts with
 the companion fork's version. Before building vLLM, align its local requirement
 with the version produced by that fork checkout. This changes dependency metadata;
-it does not prove runtime compatibility. Do not spoof the fork's version or use a
-resolver override to hide the mismatch.
+it does not prove runtime compatibility. Do not spoof the fork's version. If
+using an override instead, bind it to the fork checkout as described below.
 
 ```bash
 cd vllm
 uv venv --python 3.12 .venv
-uv pip install --python .venv/bin/python ../compressed-tensors --torch-backend=auto
+BUILD_TYPE=nightly uv pip install --python .venv/bin/python ../compressed-tensors --torch-backend=auto
 
 .venv/bin/python - <<'PYTHON'
 from importlib.metadata import version
@@ -126,7 +131,7 @@ path.write_text(text)
 print(f"Aligned vLLM dependency with compressed-tensors {fork_version}")
 PYTHON
 
-VLLM_USE_PRECOMPILED=1 uv pip install --python .venv/bin/python \
+BUILD_TYPE=nightly VLLM_USE_PRECOMPILED=1 uv pip install --python .venv/bin/python \
   --reinstall-package vllm -e . ../compressed-tensors --torch-backend=auto
 uv pip check --python .venv/bin/python
 
@@ -152,6 +157,28 @@ the override. Reinstalling vLLM is required to refresh its installed dependency
 metadata; editing `requirements/common.txt` alone will not fix `uv pip check`.
 Do not proceed with an unresolved dependency-check failure. Repeat the alignment
 and reinstall if the compressed-tensors checkout version changes.
+
+If retaining the original vLLM pin instead of applying the alignment above,
+use a **direct-checkout override**, never a version-only override such as
+`compressed-tensors>=0.17.0`, which can silently select the PyPI package. From
+`vllm/`, generate the override using the actual checkout path:
+
+```bash
+.venv/bin/python - <<'PYTHON'
+from pathlib import Path
+checkout = Path("../compressed-tensors").resolve(strict=True)
+Path("osfp4-overrides.txt").write_text(
+    f"compressed-tensors @ {checkout.as_uri()}\n"
+)
+PYTHON
+BUILD_TYPE=nightly VLLM_USE_PRECOMPILED=1 uv pip install --python .venv/bin/python \
+  --override osfp4-overrides.txt --reinstall-package vllm -e . --torch-backend=auto
+```
+
+This alternative leaves vLLM's installed `0.17.0` requirement unchanged, so
+`uv pip check` still reports that known metadata conflict. Record it explicitly
+and investigate any additional conflicts. The pin-alignment procedure above
+avoids this metadata mismatch.
 
 Use a GPU supported by the selected backend: CUTLASS for NVFP4 or Humming for NVFP4A16. Follow the [vLLM installation guide](https://github.com/neriahbd/vllm-for-osfp4/tree/add-moe-support/docs/getting_started/installation) for backend dependencies or a source build if compatible precompiled artifacts are unavailable. No OSFP4 plugin is needed.
 
