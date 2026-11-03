@@ -28,10 +28,11 @@ uv pip check --python .venv/bin/python
 
 ## 2. Quantize and export
 
-Save this as `quantize.py` and run `.venv/bin/python quantize.py`. This example quantizes [Qwen/Qwen1.5-MoE-A2.7B](https://huggingface.co/Qwen/Qwen1.5-MoE-A2.7B) (14.3B total parameters, 2.7B active per token) using 128 samples from `perfectblend`, with up to 512 tokens per sample. This small calibration subset is for trying the workflow; use representative data and check expert coverage when evaluating quality.
+Save this as `quantize.py` and run `.venv/bin/python quantize.py`. This example quantizes [Qwen/Qwen1.5-MoE-A2.7B](https://huggingface.co/Qwen/Qwen1.5-MoE-A2.7B) (14.3B total parameters, 2.7B active per token) using 128 passages from the [WikiText-2](https://huggingface.co/datasets/Salesforce/wikitext) training split, with up to 512 tokens per passage. This small calibration subset is for trying the workflow; use representative data and check expert coverage when evaluating quality.
 
 ```python
 import torch
+from datasets import load_dataset
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
 from llmcompressor import oneshot
@@ -45,10 +46,20 @@ tokenizer = AutoTokenizer.from_pretrained(MODEL_ID)
 with load_context():
     model = AutoModelForCausalLM.from_pretrained(MODEL_ID, dtype=torch.bfloat16)
 
+ds = load_dataset("Salesforce/wikitext", "wikitext-2-raw-v1", split="train")
+ds = ds.filter(lambda row: len(row["text"].split()) >= 64)
+ds = ds.shuffle(seed=42).select(range(128))
+ds = ds.map(
+    lambda row: tokenizer(
+        row["text"], truncation=True, max_length=512,
+        padding=False, add_special_tokens=False,
+    ),
+    remove_columns=ds.column_names,
+)
+
 oneshot(
     model=model,
-    dataset="perfectblend",
-    splits="train[:128]",
+    dataset=ds,
     recipe=OSFP4Modifier(
         scheme="NVFP4",           # Or "NVFP4A16" for W4A16.
         optimization_mode="sic",  # Or "rtn".
