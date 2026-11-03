@@ -116,7 +116,7 @@ import re
 path = Path("requirements/common.txt")
 fork_version = version("compressed-tensors")
 text, count = re.subn(
-    r"(?m)^compressed-tensors\s*==[^\s#]+[^\n]*$",
+    r"(?m)^compressed-tensors\s*==\s*[^\s#]+[^\n]*$",
     f"compressed-tensors == {fork_version} # OSFP4 companion fork",
     path.read_text(),
 )
