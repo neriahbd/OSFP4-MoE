@@ -22,7 +22,7 @@ git clone -b osfp4-diagonal-transform https://github.com/orimeirgit/compressed-t
 git clone -b add-moe-support https://github.com/neriahbd/vllm-for-osfp4.git vllm
 
 uv venv --python 3.12 .venv
-uv pip install --python .venv/bin/python -e ./compressed-tensors -e ./llm-compressor --torch-backend=auto
+uv pip install --python .venv/bin/python ./compressed-tensors -e ./llm-compressor --torch-backend=auto
 uv pip check --python .venv/bin/python
 ```
 
@@ -92,18 +92,66 @@ processor.save_pretrained(SAVE_DIR)
 
 ## 3. Serve with vLLM
 
-From the same working directory, create a separate serving environment:
+From the same working directory, create a separate serving environment. Install
+compressed-tensors from the fork checkout above, not the PyPI release. A regular
+build from that checkout is intentional; use `-e ../compressed-tensors` instead
+only when actively editing its source.
+
+The vLLM branch currently pins `compressed-tensors==0.17.0`, which conflicts with
+the companion fork's version. Before building vLLM, align its local requirement
+with the version produced by that fork checkout. This changes dependency metadata;
+it does not prove runtime compatibility. Do not spoof the fork's version or use a
+resolver override to hide the mismatch.
 
 ```bash
 cd vllm
 uv venv --python 3.12 .venv
+uv pip install --python .venv/bin/python ../compressed-tensors --torch-backend=auto
+
+.venv/bin/python - <<'PYTHON'
+from importlib.metadata import version
+from pathlib import Path
+import re
+
+path = Path("requirements/common.txt")
+fork_version = version("compressed-tensors")
+text, count = re.subn(
+    r"(?m)^compressed-tensors\s*==[^\s#]+[^\n]*$",
+    f"compressed-tensors == {fork_version} # OSFP4 companion fork",
+    path.read_text(),
+)
+if count != 1:
+    raise RuntimeError("Expected one compressed-tensors pin; inspect requirements/common.txt")
+path.write_text(text)
+print(f"Aligned vLLM dependency with compressed-tensors {fork_version}")
+PYTHON
+
 VLLM_USE_PRECOMPILED=1 uv pip install --python .venv/bin/python \
-  -e . -e ../compressed-tensors --torch-backend=auto
+  --reinstall-package vllm -e . ../compressed-tensors --torch-backend=auto
 uv pip check --python .venv/bin/python
+
+# Record both package versions and their checkout provenance.
+.venv/bin/python - <<'PYTHON'
+from importlib.metadata import distribution
+for name in ("vllm", "compressed-tensors"):
+    dist = distribution(name)
+    print(name, dist.version)
+    print(dist.read_text("direct_url.json"))
+PYTHON
+git rev-parse HEAD
+git -C ../compressed-tensors rev-parse HEAD
+git diff -- requirements/common.txt
 
 .venv/bin/vllm serve /absolute/path/to/moe-osfp4 \
   --tensor-parallel-size 1 --enforce-eager
 ```
+
+For an existing serving environment installed with an override, retain the
+fork checkout and run the pin-alignment and vLLM reinstall steps above without
+the override. Reinstalling vLLM is required to refresh its installed dependency
+metadata; editing `requirements/common.txt` alone will not fix `uv pip check`.
+Do not proceed with an unresolved dependency-check failure. Repeat the alignment
+and reinstall if the compressed-tensors checkout version changes.
 
 Use a GPU supported by the selected backend: CUTLASS for NVFP4 or Humming for NVFP4A16. Follow the [vLLM installation guide](https://github.com/neriahbd/vllm-for-osfp4/tree/add-moe-support/docs/getting_started/installation) for backend dependencies or a source build if compatible precompiled artifacts are unavailable. No OSFP4 plugin is needed.
 
