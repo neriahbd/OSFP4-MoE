@@ -59,13 +59,13 @@ oneshot(
     num_calibration_samples=1024,
     max_seq_length=2048,
     propagate_error=True,
-    moe_calibrate_all_experts=True,
+    moe_calibrate_all_experts=False,
 )
 model.save_pretrained(SAVE_DIR, save_compressed=True)
 tokenizer.save_pretrained(SAVE_DIR)
 ```
 
-`load_context()` prepares supported MoE experts for calibration. Keep router layers in full precision. `moe_calibrate_all_experts=True` exposes every expert to all calibration tokens; `False` uses routed tokens and requires checking expert coverage.
+`load_context()` prepares supported MoE experts for calibration. Keep router layers in full precision. The example uses `moe_calibrate_all_experts=False` so each expert is calibrated on its routed tokens. Check expert coverage with your calibration data. Set it to `True` to expose every expert to all calibration tokens.
 
 ## 3. Serve with vLLM
 
