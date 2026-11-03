@@ -28,7 +28,7 @@ uv pip check --python .venv/bin/python
 
 ## 2. Quantize and export
 
-Save this as `quantize.py` and run `.venv/bin/python quantize.py`. This example quantizes `Qwen/Qwen3-30B-A3B` using 128 samples from `perfectblend`, with up to 512 tokens per sample. This small calibration subset is for trying the workflow; use representative data and check expert coverage when evaluating quality.
+Save this as `quantize.py` and run `.venv/bin/python quantize.py`. This example quantizes [Qwen/Qwen1.5-MoE-A2.7B](https://huggingface.co/Qwen/Qwen1.5-MoE-A2.7B) (14.3B total parameters, 2.7B active per token) using 128 samples from `perfectblend`, with up to 512 tokens per sample. This small calibration subset is for trying the workflow; use representative data and check expert coverage when evaluating quality.
 
 ```python
 import torch
@@ -38,7 +38,7 @@ from llmcompressor import oneshot
 from llmcompressor.modifiers.osfp4 import OSFP4Modifier
 from llmcompressor.utils import load_context
 
-MODEL_ID = "Qwen/Qwen3-30B-A3B"
+MODEL_ID = "Qwen/Qwen1.5-MoE-A2.7B"
 SAVE_DIR = "moe-osfp4"
 
 tokenizer = AutoTokenizer.from_pretrained(MODEL_ID)
