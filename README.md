@@ -97,73 +97,12 @@ processor.save_pretrained(SAVE_DIR)
 
 ## 3. Serve with vLLM
 
-From the same working directory, create a separate serving environment. Install
-compressed-tensors from the fork checkout above, not the PyPI release. A regular
-build from that checkout is intentional; use `-e ../compressed-tensors` instead
-only when actively editing its source.
-
-The vLLM branch currently pins `compressed-tensors==0.17.0`, which conflicts with
-the companion fork's version. Before building vLLM, align its local requirement
-with the version produced by that fork checkout. This changes dependency metadata;
-it does not prove runtime compatibility. Do not spoof the fork's version. If
-using an override instead, bind it to the fork checkout as described below.
+Create a separate serving environment. Use a direct-checkout override so vLLM
+installs the companion compressed-tensors fork instead of the PyPI package.
 
 ```bash
 cd vllm
 uv venv --python 3.12 .venv
-BUILD_TYPE=nightly uv pip install --python .venv/bin/python ../compressed-tensors --torch-backend=auto
-
-.venv/bin/python - <<'PYTHON'
-from importlib.metadata import version
-from pathlib import Path
-import re
-
-path = Path("requirements/common.txt")
-fork_version = version("compressed-tensors")
-text, count = re.subn(
-    r"(?m)^compressed-tensors\s*==\s*[^\s#]+[^\n]*$",
-    f"compressed-tensors == {fork_version} # OSFP4 companion fork",
-    path.read_text(),
-)
-if count != 1:
-    raise RuntimeError("Expected one compressed-tensors pin; inspect requirements/common.txt")
-path.write_text(text)
-print(f"Aligned vLLM dependency with compressed-tensors {fork_version}")
-PYTHON
-
-BUILD_TYPE=nightly VLLM_USE_PRECOMPILED=1 uv pip install --python .venv/bin/python \
-  --reinstall-package vllm -e . ../compressed-tensors --torch-backend=auto
-uv pip check --python .venv/bin/python
-
-# Record both package versions and their checkout provenance.
-.venv/bin/python - <<'PYTHON'
-from importlib.metadata import distribution
-for name in ("vllm", "compressed-tensors"):
-    dist = distribution(name)
-    print(name, dist.version)
-    print(dist.read_text("direct_url.json"))
-PYTHON
-git rev-parse HEAD
-git -C ../compressed-tensors rev-parse HEAD
-git diff -- requirements/common.txt
-
-.venv/bin/vllm serve /absolute/path/to/moe-osfp4 \
-  --tensor-parallel-size 1 --enforce-eager
-```
-
-For an existing serving environment installed with an override, retain the
-fork checkout and run the pin-alignment and vLLM reinstall steps above without
-the override. Reinstalling vLLM is required to refresh its installed dependency
-metadata; editing `requirements/common.txt` alone will not fix `uv pip check`.
-Do not proceed with an unresolved dependency-check failure. Repeat the alignment
-and reinstall if the compressed-tensors checkout version changes.
-
-If retaining the original vLLM pin instead of applying the alignment above,
-use a **direct-checkout override**, never a version-only override such as
-`compressed-tensors>=0.17.0`, which can silently select the PyPI package. From
-`vllm/`, generate the override using the actual checkout path:
-
-```bash
 .venv/bin/python - <<'PYTHON'
 from pathlib import Path
 checkout = Path("../compressed-tensors").resolve(strict=True)
@@ -172,14 +111,20 @@ Path("osfp4-overrides.txt").write_text(
 )
 PYTHON
 BUILD_TYPE=nightly VLLM_USE_PRECOMPILED=1 uv pip install --python .venv/bin/python \
-  --override osfp4-overrides.txt --reinstall-package vllm -e . --torch-backend=auto
+  --override osfp4-overrides.txt -e . --torch-backend=auto
+uv pip check --python .venv/bin/python
+
+.venv/bin/vllm serve /absolute/path/to/moe-osfp4 \
+  --tensor-parallel-size 1 --enforce-eager
 ```
 
-This alternative leaves vLLM's installed `0.17.0` requirement unchanged, so
-`uv pip check` still reports that known metadata conflict. Record it explicitly
-and investigate any additional conflicts. The pin-alignment procedure above
-avoids this metadata mismatch.
+`uv pip check` reports the known conflict with vLLM's stale `compressed-tensors==0.17.0`
+pin; the override leaves that metadata unchanged. Investigate any additional conflicts.
+The compressed-tensors fork is installed as a regular build from the checkout.
 
-Use a GPU supported by the selected backend: CUTLASS for NVFP4 or Humming for NVFP4A16. Follow the [vLLM installation guide](https://github.com/neriahbd/vllm-for-osfp4/tree/add-moe-support/docs/getting_started/installation) for backend dependencies or a source build if compatible precompiled artifacts are unavailable. No OSFP4 plugin is needed.
-
-Start with single-GPU execution. Expert parallelism, expert load balancing, and fused shared-expert execution are not supported by this transformed-expert path. The commands are a development workflow, not a GPU-validated release recipe.
+Use a supported GPU backend: CUTLASS for NVFP4 or Humming for NVFP4A16. See the
+[vLLM installation guide](https://github.com/neriahbd/vllm-for-osfp4/tree/add-moe-support/docs/getting_started/installation)
+if compatible precompiled artifacts are unavailable. No OSFP4 plugin is needed.
+Start with one GPU; expert parallelism, expert load balancing, and fused
+shared-expert execution are unsupported. This is a development workflow, not a
+fully GPU-validated release recipe.
