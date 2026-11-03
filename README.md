@@ -28,7 +28,7 @@ uv pip check --python .venv/bin/python
 
 ## 2. Quantize and export
 
-Save this as `quantize.py`, set `MODEL_ID` to your BF16 MoE model, and run `.venv/bin/python quantize.py`. The router exclusions below assume Qwen-style names; adapt them for your architecture. Calibration uses the fork's `perfectblend` dataset loader; use representative data for your application.
+Save this as `quantize.py` and run `.venv/bin/python quantize.py`. This example quantizes `Qwen/Qwen3-30B-A3B` using 128 samples from `perfectblend`, with up to 512 tokens per sample. This small calibration subset is for trying the workflow; use representative data and check expert coverage when evaluating quality.
 
 ```python
 import torch
@@ -38,7 +38,7 @@ from llmcompressor import oneshot
 from llmcompressor.modifiers.osfp4 import OSFP4Modifier
 from llmcompressor.utils import load_context
 
-MODEL_ID = "/path/to/bf16-moe-model"
+MODEL_ID = "Qwen/Qwen3-30B-A3B"
 SAVE_DIR = "moe-osfp4"
 
 tokenizer = AutoTokenizer.from_pretrained(MODEL_ID)
@@ -48,7 +48,7 @@ with load_context():
 oneshot(
     model=model,
     dataset="perfectblend",
-    splits="train[:1024]",
+    splits="train[:128]",
     recipe=OSFP4Modifier(
         scheme="NVFP4",           # Or "NVFP4A16" for W4A16.
         optimization_mode="sic",  # Or "rtn".
@@ -56,8 +56,8 @@ oneshot(
         ignore=["lm_head", "re:.*mlp.gate$", "re:.*mlp.shared_expert_gate$"],
         activation_subsample_size="auto",
     ),
-    num_calibration_samples=1024,
-    max_seq_length=2048,
+    num_calibration_samples=128,
+    max_seq_length=512,
     propagate_error=True,
     moe_calibrate_all_experts=False,
 )
