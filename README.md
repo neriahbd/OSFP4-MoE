@@ -2,7 +2,7 @@
 
 OSFP4 quantizes MoE models with optimized per-channel smoothing and FP4 scales. Each expert shares a smoothing vector across its gate/up projections and uses a separate vector for its down projection. LLM Compressor calibrates and exports the model; compressed-tensors stores the diagonal transforms; vLLM applies them during inference.
 
-Supports NVFP4 (W4A4) and NVFP4A16 (W4A16), with RTN or SIC optimization. These are development branches; end-to-end MoE GPU accuracy and performance validation remain pending.
+Supports NVFP4 (W4A4) and NVFP4A16 (W4A16), with RTN or SIC optimization.
 
 ## Forks
 
