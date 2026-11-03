@@ -124,7 +124,4 @@ The compressed-tensors fork is installed as a regular build from the checkout.
 
 Use a supported GPU backend: CUTLASS for NVFP4 or Humming for NVFP4A16. See the
 [vLLM installation guide](https://github.com/neriahbd/vllm-for-osfp4/tree/add-moe-support/docs/getting_started/installation)
-if compatible precompiled artifacts are unavailable. No OSFP4 plugin is needed.
-Start with one GPU; expert parallelism, expert load balancing, and fused
-shared-expert execution are unsupported. This is a development workflow, not a
-fully GPU-validated release recipe.
+if compatible precompiled artifacts are unavailable.
