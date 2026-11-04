@@ -33,6 +33,13 @@ checkout, so do not assume a fixed version string.
 
 ## 2. Quantize and export
 
+For MoE calibration, excessive CPU threading can slow the small tensor operations used by activation capture. Set the thread count before model loading and calibration:
+
+```python
+import torch
+torch.set_num_threads(4)
+```
+
 Save this as `quantize.py` and run `.venv/bin/python quantize.py`. This example quantizes [Qwen/Qwen3.6-35B-A3B](https://huggingface.co/Qwen/Qwen3.6-35B-A3B) (35B total parameters, about 3B active per token) using 128 passages from the [WikiText-2](https://huggingface.co/datasets/Salesforce/wikitext) training split, with up to 512 tokens per passage. This small calibration subset is for trying the workflow; use representative data and check expert coverage when evaluating quality.
 
 ```python
