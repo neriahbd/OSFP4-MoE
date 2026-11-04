@@ -9,7 +9,7 @@ Supports NVFP4 (W4A4) and NVFP4A16 (W4A16), with RTN or SIC optimization.
 | Fork | Branch | Role |
 |---|---|---|
 | [LLM Compressor](https://github.com/orimeirgit/llm-compressor-for-osfp4/tree/add-moe-support) | `add-moe-support` | OSFP4 calibration and export |
-| [compressed-tensors](https://github.com/orimeirgit/compressed-tensors-for-osfp4/tree/osfp4-diagonal-transform) | `osfp4-diagonal-transform` | Diagonal transform representation |
+| [compressed-tensors](https://github.com/orimeirgit/compressed-tensors-for-osfp4/tree/add-moe-support) | `add-moe-support` | Diagonal transform representation |
 | [vLLM](https://github.com/neriahbd/vllm-for-osfp4/tree/add-moe-support) | `add-moe-support` | Native MoE inference |
 
 ## 1. Install for calibration
@@ -18,7 +18,7 @@ Use `uv` and a CUDA-enabled PyTorch environment with enough memory for the BF16 
 
 ```bash
 git clone -b add-moe-support https://github.com/orimeirgit/llm-compressor-for-osfp4.git llm-compressor
-git clone -b osfp4-diagonal-transform https://github.com/orimeirgit/compressed-tensors-for-osfp4.git compressed-tensors
+git clone -b add-moe-support https://github.com/orimeirgit/compressed-tensors-for-osfp4.git compressed-tensors
 git clone -b add-moe-support https://github.com/neriahbd/vllm-for-osfp4.git vllm
 
 uv venv --python 3.12 .venv
